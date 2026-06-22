@@ -16,6 +16,7 @@
       <button data-tab="properties">物件一覧</button>
       <button data-tab="contacts">顧客一覧</button>
       <button data-tab="transactions">取引一覧</button>
+      <button data-tab="documents">書類発行</button>
     </nav>
   </div>
   <div class="sidebar-bottom">
@@ -63,6 +64,29 @@
       <select id="filter-tx-status"><option value="">ステータス: すべて</option></select>
     </div>
     <div id="transactions-table" class="loading">読み込み中...</div>
+  </section>
+
+  <section id="documents">
+    <div class="doc-issue-page">
+      <div class="doc-issue-form">
+        <label>物件
+          <select id="doc-property-select"></select>
+        </label>
+        <label>取引（買主）
+          <select id="doc-transaction-select"></select>
+        </label>
+        <div id="doc-status-hint" class="doc-status-hint"></div>
+        <label>書類の種類
+          <select id="doc-type-select"></select>
+        </label>
+        <button id="btn-issue-document" class="btn-primary">発行する</button>
+        <div id="doc-issue-msg" class="msg"></div>
+      </div>
+      <p class="settings-note">
+        発行された書類は、対象物件のDriveフォルダ内「03_仲介業者作成書類」に保存されます。
+        取引（買主）を選択すると、現在の取引ステータスに応じて発行すべき書類の種類が絞り込まれます。
+      </p>
+    </div>
   </section>
 
   <section id="settings">

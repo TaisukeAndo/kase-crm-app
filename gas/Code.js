@@ -104,6 +104,9 @@ function handleRequest_(e) {
       case 'generateDocument':
         result = generateDocument_(body.payload);
         break;
+      case 'deleteProperty':
+        result = deleteProperty_(body.payload);
+        break;
       default:
         return jsonOutput_({ ok: false, error: 'unknown action: ' + action });
     }
@@ -499,4 +502,38 @@ function getPropertyDocsFolder_(propertyName) {
   var propertiesRoot = getOrCreateFolder_(root, '02_物件');
   var propertyFolder = getOrCreateFolder_(propertiesRoot, propertyName);
   return getOrCreateFolder_(propertyFolder, '03_仲介業者作成書類');
+}
+
+/**
+ * 物件マスタから該当行を削除し、Drive上の物件フォルダ（不動産CRM/02_物件/{物件名}/）も
+ * ゴミ箱に移動する。フォルダを丸ごとtrashedにするため、配下の01〜04サブフォルダ・書類も含めて削除される。
+ * イベントログ等の履歴行は削除しない（物件名のテキストだけが残り、履歴として参照可能）。
+ */
+function deleteProperty_(payload) {
+  if (!payload || !payload['物件名']) throw new Error('物件名は必須です');
+  var propertyName = payload['物件名'];
+
+  var sheet = getSS_().getSheetByName('物件マスタ');
+  var map = headerIndexMap_(sheet);
+  var keyCol = map['物件名'];
+  var keyValues = sheet.getRange(2, keyCol, sheet.getLastRow() - 1, 1).getValues();
+  var rowNum = null;
+  for (var i = 0; i < keyValues.length; i++) {
+    if (keyValues[i][0] === propertyName) { rowNum = i + 2; break; }
+  }
+  if (!rowNum) throw new Error('物件が見つかりません: ' + propertyName);
+
+  sheet.deleteRow(rowNum);
+
+  var root = getOrCreateFolder_(DriveApp.getRootFolder(), DRIVE_ROOT_FOLDER_NAME);
+  var propertiesRoot = getOrCreateFolder_(root, '02_物件');
+  var it = propertiesRoot.getFoldersByName(propertyName);
+  var folderDeleted = false;
+  if (it.hasNext()) {
+    it.next().setTrashed(true);
+    folderDeleted = true;
+  }
+
+  clearCache_();
+  return { deleted: true, 物件名: propertyName, folderDeleted: folderDeleted };
 }
