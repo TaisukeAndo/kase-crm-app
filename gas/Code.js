@@ -107,6 +107,12 @@ function handleRequest_(e) {
       case 'deleteProperty':
         result = deleteProperty_(body.payload);
         break;
+      case 'deleteContact':
+        result = deleteContact_(body.payload);
+        break;
+      case 'deleteTransaction':
+        result = deleteTransaction_(body.payload);
+        break;
       default:
         return jsonOutput_({ ok: false, error: 'unknown action: ' + action });
     }
@@ -130,8 +136,25 @@ function getCache_() {
 }
 
 function clearCache_() {
-  getCache_().removeAll(['properties', 'contacts', 'events', 'transactions']);
+  getCache_().removeAll(['properties', 'contacts', 'events', 'transactions', 'activity']);
   return { cleared: true };
+}
+
+/**
+ * 物件・顧客の登録／更新／削除など、取引ステータス変更以外の操作を「対応履歴ログ」に記録する。
+ * これによりダッシュボードの「直近イベント」に、ステータス更新だけでなく全ての更新作業が表示される。
+ */
+function logActivity_(type, target, detail) {
+  var sheet = getSS_().getSheetByName('対応履歴ログ');
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('種別') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('種別');
+  }
+  sheet.appendRow([target || '', formatDate_(new Date()), detail || '', type]);
+}
+
+function listActivity_() {
+  return cached_('activity', function () { return sheetToObjects_('対応履歴ログ'); });
 }
 
 function cached_(key, fn) {
@@ -225,9 +248,25 @@ function getBootstrap_() {
   };
 }
 
+/**
+ * 「直近イベント」をイベントログ（取引ステータス変更）と対応履歴ログ（物件・顧客の
+ * 登録/更新/削除）の両方から統合して返す。物件マスタの現在ステータス算出には
+ * イベントログのみを使うため、この統合は表示専用（ダッシュボード用）。
+ */
 function recentEvents_() {
-  var events = listEvents_();
-  return events.slice().sort(function (a, b) {
+  var events = listEvents_().map(function (e) {
+    return { 物件名: e['物件名'], 買主氏名: e['買主氏名'], イベント種別: e['イベント種別'], 日付: e['日付'], メモ: e['メモ'] };
+  });
+  var activities = listActivity_().map(function (a) {
+    return {
+      物件名: '',
+      買主氏名: '',
+      イベント種別: a['種別'] || '更新',
+      日付: a['日付'],
+      メモ: (a['対象氏名'] ? a['対象氏名'] + ' - ' : '') + (a['メモ'] || ''),
+    };
+  });
+  return events.concat(activities).sort(function (a, b) {
     return new Date(b['日付']) - new Date(a['日付']);
   }).slice(0, 10);
 }
@@ -249,6 +288,7 @@ function createContact_(payload) {
     payload['メールアドレス'] || '',
     payload['電話番号'] || '',
   ]);
+  logActivity_('顧客登録', payload['氏名'], '種別: ' + (payload['種別'] || '未設定'));
   clearCache_();
   return { created: true, 氏名: payload['氏名'] };
 }
@@ -307,6 +347,7 @@ function createProperty_(payload) {
     '=IFERROR(QUERY(\'イベントログ\'!$A$2:$F$300,"select C where A=\'"&A' + lastRow + '&"\' order by D desc limit 1"),"問い合わせ前")'
   );
 
+  logActivity_('物件登録', propertyName, '新規登録しました');
   clearCache_();
   return { created: true, 物件名: propertyName, folderUrl: folderInfo.url };
 }
@@ -374,6 +415,10 @@ function updateRowsByKey_(sheetName, keyHeader, updates) {
 function updatePropertiesBatch_(payload) {
   if (!payload || !payload.updates) throw new Error('updates は必須です');
   var result = updateRowsByKey_('物件マスタ', '物件名', payload.updates);
+  payload.updates.forEach(function (u) {
+    var fieldNames = Object.keys(u.fields || {}).join('、');
+    logActivity_('物件情報更新', u.key, fieldNames ? (fieldNames + ' を更新') : '更新');
+  });
   clearCache_();
   return result;
 }
@@ -381,6 +426,10 @@ function updatePropertiesBatch_(payload) {
 function updateContactsBatch_(payload) {
   if (!payload || !payload.updates) throw new Error('updates は必須です');
   var result = updateRowsByKey_('連絡先マスタ', '氏名', payload.updates);
+  payload.updates.forEach(function (u) {
+    var fieldNames = Object.keys(u.fields || {}).join('、');
+    logActivity_('顧客情報更新', u.key, fieldNames ? (fieldNames + ' を更新') : '更新');
+  });
   clearCache_();
   return result;
 }
@@ -534,6 +583,54 @@ function deleteProperty_(payload) {
     folderDeleted = true;
   }
 
+  logActivity_('物件削除', propertyName, 'Driveフォルダも削除');
   clearCache_();
   return { deleted: true, 物件名: propertyName, folderDeleted: folderDeleted };
+}
+
+/** 連絡先マスタから該当行を削除する（Drive操作は無し） */
+function deleteContact_(payload) {
+  if (!payload || !payload['氏名']) throw new Error('氏名は必須です');
+  var name = payload['氏名'];
+  var sheet = getSS_().getSheetByName('連絡先マスタ');
+  var map = headerIndexMap_(sheet);
+  var keyCol = map['氏名'];
+  var keyValues = sheet.getRange(2, keyCol, sheet.getLastRow() - 1, 1).getValues();
+  var rowNum = null;
+  for (var i = 0; i < keyValues.length; i++) {
+    if (keyValues[i][0] === name) { rowNum = i + 2; break; }
+  }
+  if (!rowNum) throw new Error('顧客が見つかりません: ' + name);
+  sheet.deleteRow(rowNum);
+
+  logActivity_('顧客削除', name, '');
+  clearCache_();
+  return { deleted: true, 氏名: name };
+}
+
+/**
+ * 取引（物件名×買主氏名）に紐づくイベントログの全行を削除する。
+ * 履歴も含めて取引そのものを消す操作のため、利用前に必ず確認を取ること。
+ */
+function deleteTransaction_(payload) {
+  if (!payload || !payload['物件名'] || !payload['買主氏名']) {
+    throw new Error('物件名・買主氏名は必須です');
+  }
+  var propertyName = payload['物件名'];
+  var buyerName = payload['買主氏名'];
+
+  var sheet = getSS_().getSheetByName('イベントログ');
+  var values = sheet.getDataRange().getValues();
+  var deletedCount = 0;
+  // 末尾から走査して削除することで、行番号のズレを避ける
+  for (var i = values.length - 1; i >= 1; i--) {
+    if (values[i][0] === propertyName && values[i][1] === buyerName) {
+      sheet.deleteRow(i + 1);
+      deletedCount++;
+    }
+  }
+
+  logActivity_('取引削除', propertyName + ' × ' + buyerName, deletedCount + '件のイベントを削除');
+  clearCache_();
+  return { deleted: true, deletedCount: deletedCount };
 }
