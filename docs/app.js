@@ -37,8 +37,10 @@ function switchTab(tab) {
   document.getElementById("page-title").textContent = titles[tab] || tab;
 
   const isListTab = ["properties", "contacts", "transactions"].includes(tab);
+  // 物件一覧は行ごとの編集モーダル方式に変更したため、ダーティ追跡の更新ボタンは表示しない
+  const usesDirtyUpdateFlow = ["contacts", "transactions"].includes(tab);
   document.getElementById("btn-new").style.display = isListTab ? "" : "none";
-  document.getElementById("btn-update").style.display = isListTab ? "" : "none";
+  document.getElementById("btn-update").style.display = usesDirtyUpdateFlow ? "" : "none";
   document.getElementById("fab-add").style.display = isListTab ? "" : "none";
   updateDirtyUI();
 
@@ -119,27 +121,20 @@ function renderPropertiesTable() {
   if (rows.length === 0) { el.innerHTML = `<div class="empty">該当する物件がありません</div>`; return; }
 
   el.innerHTML = `
-    <table>
-      <tr><th>物件名</th><th>都道府県</th><th>市区町村</th><th>番地</th><th>価格</th><th>面積</th><th>間取り</th><th>売主氏名</th><th>現在ステータス</th><th>Drive</th><th>書類発行</th></tr>
+    <div class="table-scroll"><table>
+      <tr><th>物件</th><th>価格</th><th>面積/間取り</th><th>売主氏名</th><th>現在ステータス</th><th>Drive</th><th>書類発行</th><th>編集</th></tr>
       ${rows.map((p) => {
         const key = p["物件名"];
+        const address = [p["都道府県"], p["市区町村"], p["番地"]].filter(Boolean).join(" ");
         return `
         <tr data-key="${key}">
-          <td>${key}</td>
-          <td><input data-field="都道府県" value="${p["都道府県"] || ""}" /></td>
-          <td><input data-field="市区町村" value="${p["市区町村"] || ""}" /></td>
-          <td><input data-field="番地" value="${p["番地"] || ""}" /></td>
-          <td><input data-field="価格" value="${p["価格"] || ""}" /></td>
-          <td><input data-field="面積" value="${p["面積"] || ""}" /></td>
-          <td><input data-field="間取り" value="${p["間取り"] || ""}" /></td>
           <td>
-            <select data-field="売主氏名">
-              <option value="">（未設定）</option>
-              ${state.contacts.filter((c) => c["種別"] === "売主").map((c) =>
-                `<option value="${c["氏名"]}" ${p["売主氏名"] === c["氏名"] ? "selected" : ""}>${c["氏名"]}</option>`
-              ).join("")}
-            </select>
+            <div class="property-name">${key}</div>
+            <div class="property-address">${address || "-"}</div>
           </td>
+          <td>${p["価格"] || "-"}</td>
+          <td>${[p["面積"], p["間取り"]].filter(Boolean).join(" / ") || "-"}</td>
+          <td>${p["売主氏名"] || "-"}</td>
           <td><span class="${statusClass(p["現在ステータス（自動）"])}">${p["現在ステータス（自動）"] || "-"}</span></td>
           <td>${p["Driveフォルダリンク"] ? `<a href="${p["Driveフォルダリンク"]}" target="_blank">開く</a>` : "-"}</td>
           <td class="doc-issue-cell">
@@ -148,12 +143,15 @@ function renderPropertiesTable() {
             </select>
             <button class="btn-doc-issue" data-property="${key}">発行</button>
           </td>
+          <td><button class="btn-edit-row" data-property="${key}" title="編集">✏️</button></td>
         </tr>`;
       }).join("")}
-    </table>
+    </table></div>
   `;
-  bindEditableCells(el, "properties");
   bindDocIssueButtons(el);
+  el.querySelectorAll(".btn-edit-row").forEach((btn) => {
+    btn.addEventListener("click", () => openPropertyEditModal(btn.dataset.property));
+  });
 }
 
 // ---------- 顧客一覧 ----------
@@ -181,7 +179,7 @@ function renderContactsTable() {
   if (rows.length === 0) { el.innerHTML = `<div class="empty">該当する顧客がありません</div>`; return; }
 
   el.innerHTML = `
-    <table>
+    <div class="table-scroll"><table>
       <tr><th>氏名</th><th>種別</th><th>メールアドレス</th><th>電話番号</th></tr>
       ${rows.map((c) => {
         const key = c["氏名"];
@@ -197,7 +195,7 @@ function renderContactsTable() {
           <td><input data-field="電話番号" value="${c["電話番号"] || ""}" /></td>
         </tr>`;
       }).join("")}
-    </table>
+    </table></div>
   `;
   bindEditableCells(el, "contacts");
 }
@@ -227,7 +225,7 @@ function renderTransactionsTable() {
   if (rows.length === 0) { el.innerHTML = `<div class="empty">該当する取引がありません</div>`; return; }
 
   el.innerHTML = `
-    <table>
+    <div class="table-scroll"><table>
       <tr><th>物件名</th><th>買主氏名</th><th>現在ステータス</th><th>メモ</th><th>最終更新日</th><th>書類発行</th></tr>
       ${rows.map((t) => {
         const key = t["物件名"] + "___" + t["買主氏名"];
@@ -250,7 +248,7 @@ function renderTransactionsTable() {
           </td>
         </tr>`;
       }).join("")}
-    </table>
+    </table></div>
   `;
   bindEditableCells(el, "transactions");
   bindDocIssueButtons(el);
@@ -452,25 +450,57 @@ function openTransactionModal() {
   bindModalSubmit("createTransaction", () => closeModal());
 }
 
-function bindModalSubmit(action) {
+function bindModalSubmit(action, options) {
+  options = options || {};
   const form = document.getElementById("modal-form");
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const msg = document.getElementById("modal-msg");
-    msg.textContent = "登録中...";
+    msg.textContent = (options.submitLabel || "登録") + "中...";
     msg.className = "msg";
-    const payload = {};
-    new FormData(form).forEach((v, k) => { payload[k] = v; });
+    const raw = {};
+    new FormData(form).forEach((v, k) => { raw[k] = v; });
+    const payload = options.buildPayload ? options.buildPayload(raw) : raw;
     const res = await callApi(action, payload);
     if (res.ok) {
-      msg.textContent = "登録しました";
+      msg.textContent = (options.submitLabel || "登録") + "しました";
       msg.className = "msg ok";
       await refreshAll();
       setTimeout(closeModal, 600);
     } else {
-      msg.textContent = `登録失敗: ${res.error}`;
+      msg.textContent = `失敗: ${res.error}`;
       msg.className = "msg err";
     }
+  });
+}
+
+// ---------- 物件の編集モーダル（一覧の鉛筆ボタンから開く） ----------
+function openPropertyEditModal(propertyName) {
+  const p = state.properties.find((x) => x["物件名"] === propertyName);
+  if (!p) return;
+  showModal(`物件を編集: ${propertyName}`, `
+    <form id="modal-form">
+      <label>都道府県<input name="都道府県" value="${p["都道府県"] || ""}" /></label>
+      <label>市区町村<input name="市区町村" value="${p["市区町村"] || ""}" /></label>
+      <label>番地<input name="番地" value="${p["番地"] || ""}" /></label>
+      <label>価格<input name="価格" value="${p["価格"] || ""}" /></label>
+      <label>面積<input name="面積" value="${p["面積"] || ""}" /></label>
+      <label>間取り<input name="間取り" value="${p["間取り"] || ""}" /></label>
+      <label>売主氏名
+        <select name="売主氏名">
+          <option value="">（未設定）</option>
+          ${state.contacts.filter((c) => c["種別"] === "売主").map((c) =>
+            `<option value="${c["氏名"]}" ${p["売主氏名"] === c["氏名"] ? "selected" : ""}>${c["氏名"]}</option>`
+          ).join("")}
+        </select>
+      </label>
+      <button type="submit">保存</button>
+      <div id="modal-msg" class="msg"></div>
+    </form>
+  `);
+  bindModalSubmit("updateProperties", {
+    submitLabel: "保存",
+    buildPayload: (fields) => ({ updates: [{ key: propertyName, fields }] }),
   });
 }
 

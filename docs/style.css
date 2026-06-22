@@ -64,11 +64,19 @@ h3 { font-size: 15px; margin: 18px 0 10px; color: var(--brand-green-dark); }
 }
 .filters input[type="text"] { width: 240px; }
 
-table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(46,90,55,0.08); }
-th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
-th { background: #eef3ea; color: var(--brand-green-dark); font-weight: 600; white-space: nowrap; }
+.table-scroll { overflow-x: auto; border-radius: 10px; box-shadow: 0 1px 4px rgba(46,90,55,0.08); }
+table { width: 100%; border-collapse: collapse; background: var(--card-bg); }
+th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; white-space: nowrap; }
+th { background: #eef3ea; color: var(--brand-green-dark); font-weight: 600; }
 tr:hover td { background: #f8faf5; }
 tr.row-dirty td { background: var(--dirty-bg) !important; }
+
+.property-name { font-weight: 600; color: var(--text); }
+.property-address { font-size: 12px; color: var(--text-light); margin-top: 2px; }
+.btn-edit-row {
+  border: none; background: transparent; cursor: pointer; font-size: 15px; padding: 4px 8px; border-radius: 5px;
+}
+.btn-edit-row:hover { background: #eef3ea; }
 
 td input, td select {
   width: 100%; padding: 5px 6px; border: 1px solid transparent; border-radius: 4px; font-size: 13px; background: transparent;
