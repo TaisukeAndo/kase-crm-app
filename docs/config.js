@@ -3,6 +3,8 @@
 // 実際のアクセス制御は、ログインしたGoogleアカウントのIDトークンをGAS側で検証し、
 // スプレッドシートの「Authシート」の許可リストと照合する方式に切り替えている。
 window.CRM_CONFIG = {
-  API_BASE: "https://script.google.com/macros/s/AKfycbxtM_Vve-rWW1d3bylW3kL9hrgpyW9CSUPS4_j0h1MxZI6wT8fIDGJlo9Va1voZLO1NoA/exec",
-  GOOGLE_CLIENT_ID: "367609792965-21jmcs72jt889tsanc6p651859h7n6p2.apps.googleusercontent.com",
+  // GASをデプロイ後に取得したWeb App URLに置き換える
+  API_BASE: "https://script.google.com/macros/s/AKfycbxEmEo2oAy096mY1wvFUUCsEIQvX4rtHpik3qDtFeiCxjCA7tFH2FEEx5An6tghIKuz/exec",
+  // Google Cloud ConsoleでworkspaceアカウントのOAuthクライアントIDを作成後に置き換える
+  GOOGLE_CLIENT_ID: "63165404893-1ss3l82lvbuigor0v0i2c0sc45dkg6gl.apps.googleusercontent.com",
 };

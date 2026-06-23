@@ -7,21 +7,22 @@
  * デプロイ後のWeb App URLをフロントエンド側 API_BASE に設定して使用する。
  */
 
-var SPREADSHEET_ID = '1ziEXI1l_5JkiPOuV5vbU4e8-RuH5-XCcV61x8loO-DY';
+var SPREADSHEET_ID = '1u5w-qXrUE6pTOuG-RRq6-Nt_7Y9t-ziVpCKKK7zMw_4';
 var DRIVE_ROOT_FOLDER_NAME = '不動産CRM';
 var CACHE_TTL_SEC = 25;
 
 // Googleログイン（Identity Services）用のWebアプリ向けOAuthクライアントID。
 // フロントエンド側 config.js の GOOGLE_CLIENT_ID と必ず同じ値にすること。
-var GOOGLE_OAUTH_CLIENT_ID = '367609792965-21jmcs72jt889tsanc6p651859h7n6p2.apps.googleusercontent.com';
+// TODO: workspace@atae.co.jp の Google Cloud Console で作成したOAuthクライアントIDに置き換える
+var GOOGLE_OAUTH_CLIENT_ID = '63165404893-1ss3l82lvbuigor0v0i2c0sc45dkg6gl.apps.googleusercontent.com';
 
 // 書類テンプレート（Googleドキュメント）のID。「不動産CRM/01_テンプレート」フォルダに格納されている。
 // テンプレートを差し替える場合は、同フォルダ内のドキュメントをコピーしてIDをここに反映する。
 var TEMPLATE_DOC_IDS = {
-  '物件概要書': '1PK9hXne3kIsrOlu_pzJhwuP46Z5Gkp2jpsKXPM98Iik',
-  '媒介契約書': '1zBYhECZYL_6h_mRCmI6bnNiRdUw0xQaYMvOnOx71GNo',
-  '重要事項説明書': '1KgSrrLgCjadlcwRODrkX35SbjrwpomSBlL_XXMFHOi4',
-  '売買契約書': '1J4P8Q4KjWqjFzSd3Tr5H50OdDLqrshc2wcDCyjmNmS8',
+  '物件概要書': '1yysTjpxI_fumevGdAqhfki1Ica3581q23ZW2jTpd5sU',
+  '媒介契約書': '1E7aot9zEURL8a-HuOJFkkDnhfVfGGJP7pOs1CNkwIUU',
+  '重要事項説明書': '198bZL7yPdeTVEYXVG8Hzsl94VwnQSYt8U6b2t3nQD9o',
+  '売買契約書': '1huSgo5S1WWUhVQoDdAoDJmPwwbT1mxGxRXiWdi75RXs',
 };
 // 物件のみで発行できる書類 / 物件×買主(取引)が必要な書類
 var PROPERTY_ONLY_DOC_TYPES = ['物件概要書', '媒介契約書'];
@@ -40,6 +41,48 @@ function manualAuthorizeAll() {
   DriveApp.getFileById(docId).setTrashed(true);
   // Google ID Token検証（authorize_）で使うUrlFetchAppの外部アクセス権限も認可する
   UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=dummy', { muteHttpExceptions: true });
+}
+
+/**
+ * スプレッドシートの初期セットアップ関数。
+ * 初回のみスクリプトエディタから手動実行する。
+ * 必要なシートとヘッダー行を作成する。
+ */
+function setupSheets() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  var sheetDefs = [
+    { name: 'ダッシュボード', headers: [] },
+    { name: '連絡先マスタ', headers: ['ID', '氏名', 'フリガナ', '電話', 'メール', '住所', '備考', '登録日'] },
+    { name: '物件マスタ', headers: ['ID', '物件名', '所在地', '価格', '土地面積', '建物面積', '間取り', '築年数', '売主氏名', '売主メール', '売主電話', '現在ステータス', '備考', '登録日'] },
+    { name: 'イベントログ', headers: ['ID', '物件名', '買主氏名', 'ステータス', '日付', '備考'] },
+    { name: '履歴ログ', headers: ['日時', '種別', '内容'] },
+    { name: '設定・マスタ', headers: ['種別', '値'] },
+    { name: 'Authシート', headers: ['メールアドレス', '権限', '有効'] },
+  ];
+
+  sheetDefs.forEach(function(def) {
+    var sheet = ss.getSheetByName(def.name);
+    if (!sheet) {
+      sheet = ss.insertSheet(def.name);
+    }
+    if (def.headers.length > 0 && sheet.getLastRow() === 0) {
+      sheet.appendRow(def.headers);
+      sheet.getRange(1, 1, 1, def.headers.length).setFontWeight('bold');
+    }
+  });
+
+  // デフォルトの「シート1」を削除
+  var defaultSheet = ss.getSheetByName('シート1');
+  if (defaultSheet) ss.deleteSheet(defaultSheet);
+
+  // Authシートに管理者アカウントを追加
+  var authSheet = ss.getSheetByName('Authシート');
+  if (authSheet.getLastRow() <= 1) {
+    authSheet.appendRow(['workspace@atae.co.jp', 'admin', 'TRUE']);
+  }
+
+  Logger.log('シートのセットアップが完了しました。');
 }
 
 function doGet(e) {

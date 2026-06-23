@@ -29,7 +29,7 @@ docs/config.js    API_BASE と GOOGLE_CLIENT_ID
 
 ```bash
 npx clasp push --force
-npx clasp deploy --deploymentId AKfycbxtM_Vve-rWW1d3bylW3kL9hrgpyW9CSUPS4_j0h1MxZI6wT8fIDGJlo9Va1voZLO1NoA --description "変更内容のメモ"
+npx clasp deploy --deploymentId AKfycbxEmEo2oAy096mY1wvFUUCsEIQvX4rtHpik3qDtFeiCxjCA7tFH2FEEx5An6tghIKuz --description "変更内容のメモ"
 ```
 
 `--deploymentId` を省略すると新しいデプロイ（別URL）が作られてしまい、フロントエンドが古いバックエンドを向いたままになる。**既存のデプロイIDを必ず指定すること。**
