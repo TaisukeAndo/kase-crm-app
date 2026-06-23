@@ -38,6 +38,8 @@ function manualAuthorizeAll() {
   var doc = DocumentApp.create('認可テスト_削除可');
   var docId = doc.getId();
   DriveApp.getFileById(docId).setTrashed(true);
+  // Google ID Token検証（authorize_）で使うUrlFetchAppの外部アクセス権限も認可する
+  UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=dummy', { muteHttpExceptions: true });
 }
 
 function doGet(e) {
@@ -216,20 +218,19 @@ function clearCache_() {
 }
 
 /**
- * 物件・顧客の登録／更新／削除など、取引ステータス変更以外の操作を「対応履歴ログ」に記録する。
- * これによりダッシュボードの「直近イベント」に、ステータス更新だけでなく全ての更新作業が表示される。
+ * 物件・顧客・取引の登録／更新／削除を「履歴ログ」に記録する。
+ * 内容（content）は「○○が物件一覧に追加されました」のような完成した説明文として
+ * 呼び出し側で組み立てる。これによりダッシュボードの「直近の履歴」に
+ * すべての更新作業が一貫した形式で表示される。
  */
-function logActivity_(type, target, detail) {
-  var sheet = getSS_().getSheetByName('対応履歴ログ');
-  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  if (headers.indexOf('種別') === -1) {
-    sheet.getRange(1, headers.length + 1).setValue('種別');
-  }
-  sheet.appendRow([target || '', formatDate_(new Date()), detail || '', type]);
+function logActivity_(type, content) {
+  var sheet = getSS_().getSheetByName('履歴ログ');
+  var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  sheet.appendRow([timestamp, type, content || '']);
 }
 
 function listActivity_() {
-  return cached_('activity', function () { return sheetToObjects_('対応履歴ログ'); });
+  return cached_('activity', function () { return sheetToObjects_('履歴ログ'); });
 }
 
 function cached_(key, fn) {
@@ -309,6 +310,7 @@ function listTransactions_() {
         現在ステータス: latest['イベント種別'],
         最終更新日: latest['日付'],
         メモ: latest['メモ'] || '',
+        __row: latest.__row, // 直近の更新が反映された行番号（並び替えの「新しい順」に使用）
       };
     });
   });
@@ -320,38 +322,39 @@ function getBootstrap_() {
     contacts: listContacts_(),
     transactions: listTransactions_(),
     recentEvents: recentEvents_(),
+    stats: getDashboardStats_(),
   };
 }
 
 /**
- * 「直近イベント」をイベントログ（取引ステータス変更）と対応履歴ログ（物件・顧客の
- * 登録/更新/削除）の両方から統合して返す。物件マスタの現在ステータス算出には
- * イベントログのみを使うため、この統合は表示専用（ダッシュボード用）。
+ * 「履歴ログ」から直近の更新履歴を返す（日時降順）。物件・顧客・取引の
+ * 登録/更新/削除のすべてがこの1シートに一貫した形式（日時・種別・内容）で記録されている。
  */
 function recentEvents_() {
-  var events = listEvents_().map(function (e) {
-    return { 物件名: e['物件名'], 買主氏名: e['買主氏名'], イベント種別: e['イベント種別'], 日付: e['日付'], メモ: e['メモ'] };
-  });
-  var activities = listActivity_().map(function (a) {
-    return {
-      物件名: '',
-      買主氏名: '',
-      イベント種別: a['種別'] || '更新',
-      日付: a['日付'],
-      メモ: (a['対象氏名'] ? a['対象氏名'] + ' - ' : '') + (a['メモ'] || ''),
-    };
-  });
-  return events.concat(activities).sort(function (a, b) {
-    return new Date(b['日付']) - new Date(a['日付']);
-  }).slice(0, 10);
+  return listActivity_().slice().sort(function (a, b) {
+    return new Date(b['日時']) - new Date(a['日時']);
+  }).slice(0, 15);
+}
+
+/**
+ * 「ダッシュボード」シートに設定済みの集計関数（取扱物件数・進行中の取引件数・顧客数）の
+ * 計算結果を読み取って返す。集計そのものはスプレッドシートの関数で行い、GAS側では
+ * 再計算しない（スプレッドシートを単一の真実とするため）。
+ */
+function getDashboardStats_() {
+  var sheet = getSS_().getSheetByName('ダッシュボード');
+  var values = sheet.getRange(1, 1, sheet.getLastRow(), 2).getValues();
+  var map = {};
+  values.forEach(function (row) { map[row[0]] = row[1]; });
+  return {
+    propertyCount: map['取扱物件数'] || 0,
+    activeTransactionCount: map['進行中の取引件数'] || 0,
+    contactCount: map['顧客数'] || 0,
+  };
 }
 
 function getDashboard_() {
-  var properties = listProperties_();
-  var inProgress = properties.filter(function (p) {
-    return p['現在ステータス（自動）'] && p['現在ステータス（自動）'] !== '完了';
-  });
-  return { inProgressProperties: inProgress, recentEvents: recentEvents_() };
+  return { stats: getDashboardStats_(), recentEvents: recentEvents_() };
 }
 
 function createContact_(payload) {
@@ -361,11 +364,17 @@ function createContact_(payload) {
     payload['氏名'],
     payload['種別'] || '',
     payload['メールアドレス'] || '',
-    payload['電話番号'] || '',
+    normalizePhone_(payload['電話番号']),
   ]);
-  logActivity_('顧客登録', payload['氏名'], '種別: ' + (payload['種別'] || '未設定'));
+  logActivity_('顧客登録', payload['氏名'] + '様が顧客一覧に追加されました（' + (payload['種別'] || '種別未設定') + '）');
   clearCache_();
   return { created: true, 氏名: payload['氏名'] };
+}
+
+/** 電話番号は数字とハイフンのみに限定する（単位の概念が無いため自動付与は行わない） */
+function normalizePhone_(value) {
+  if (!value) return '';
+  return String(value).replace(/[^0-9\-]/g, '');
 }
 
 function ensurePropertyExtraColumns_() {
@@ -387,6 +396,9 @@ function createProperty_(payload) {
   var skipFolder = payload['_skipFolderCreation'] === true;
   var folderInfo = skipFolder ? { url: payload['Driveフォルダリンク'] || '' } : createPropertyFolders_(propertyName);
 
+  // 列構成（A〜Q、計17列）: 物件名,都道府県,市区町村,番地,売主氏名,売主メール(参照),
+  // 売主電話(参照),登録日,Driveフォルダリンク,NotebookLM_URL,現在ステータス(自動),
+  // 価格,面積,間取り,特記事項,出典URL,取込日
   var sheet = getSS_().getSheetByName('物件マスタ');
   var today = formatDate_(new Date());
   sheet.appendRow([
@@ -397,8 +409,6 @@ function createProperty_(payload) {
     payload['売主氏名'] || '',
     '',
     '',
-    payload['売主契約日'] || '',
-    payload['担当者氏名'] || '',
     today,
     folderInfo.url,
     '（未作成）',
@@ -418,11 +428,11 @@ function createProperty_(payload) {
   sheet.getRange(lastRow, 7).setFormula(
     '=IFERROR(VLOOKUP(E' + lastRow + ',連絡先マスタ!$A:$D,4,FALSE),"")'
   );
-  sheet.getRange(lastRow, 13).setFormula(
+  sheet.getRange(lastRow, 11).setFormula(
     '=IFERROR(QUERY(\'イベントログ\'!$A$2:$F$300,"select C where A=\'"&A' + lastRow + '&"\' order by D desc limit 1"),"問い合わせ前")'
   );
 
-  logActivity_('物件登録', propertyName, '新規登録しました');
+  logActivity_('物件登録', propertyName + 'が物件一覧に追加されました');
   clearCache_();
   return { created: true, 物件名: propertyName, folderUrl: folderInfo.url };
 }
@@ -444,6 +454,9 @@ function addEvent_(payload) {
   sheet.getRange(lastRow, 6).setFormula(
     '=IF(AND(B' + lastRow + '<>"",D' + lastRow + '=MAXIFS($D$2:$D$300,$A$2:$A$300,A' + lastRow + ',$B$2:$B$300,B' + lastRow + ')),"●","")'
   );
+
+  var buyerLabel = payload['買主氏名'] ? payload['買主氏名'] + '様 × ' : '';
+  logActivity_('取引登録', buyerLabel + payload['物件名'] + ' の取引が登録されました（' + payload['イベント種別'] + '）');
   clearCache_();
   return { created: true };
 }
@@ -492,7 +505,7 @@ function updatePropertiesBatch_(payload) {
   var result = updateRowsByKey_('物件マスタ', '物件名', payload.updates);
   payload.updates.forEach(function (u) {
     var fieldNames = Object.keys(u.fields || {}).join('、');
-    logActivity_('物件情報更新', u.key, fieldNames ? (fieldNames + ' を更新') : '更新');
+    logActivity_('物件情報更新', u.key + 'の情報が更新されました' + (fieldNames ? '（' + fieldNames + '）' : ''));
   });
   clearCache_();
   return result;
@@ -500,10 +513,15 @@ function updatePropertiesBatch_(payload) {
 
 function updateContactsBatch_(payload) {
   if (!payload || !payload.updates) throw new Error('updates は必須です');
+  payload.updates.forEach(function (u) {
+    if (u.fields && '電話番号' in u.fields) {
+      u.fields['電話番号'] = normalizePhone_(u.fields['電話番号']);
+    }
+  });
   var result = updateRowsByKey_('連絡先マスタ', '氏名', payload.updates);
   payload.updates.forEach(function (u) {
     var fieldNames = Object.keys(u.fields || {}).join('、');
-    logActivity_('顧客情報更新', u.key, fieldNames ? (fieldNames + ' を更新') : '更新');
+    logActivity_('顧客情報更新', u.key + '様の情報が更新されました' + (fieldNames ? '（' + fieldNames + '）' : ''));
   });
   clearCache_();
   return result;
@@ -524,6 +542,7 @@ function updateTransactionsBatch_(payload) {
     sheet.getRange(lastRow, 6).setFormula(
       '=IF(AND(B' + lastRow + '<>"",D' + lastRow + '=MAXIFS($D$2:$D$300,$A$2:$A$300,A' + lastRow + ',$B$2:$B$300,B' + lastRow + ')),"●","")'
     );
+    logActivity_('取引ステータス更新', u['買主氏名'] + '様 × ' + u['物件名'] + ' の取引ステータスが「' + u['ステータス'] + '」に更新されました');
   });
   clearCache_();
   return { updatedCount: payload.updates.length };
@@ -589,7 +608,7 @@ function generateDocument_(payload) {
     '間取り': property['間取り'] || '',
     '特記事項': property['特記事項'] || '',
     '売主氏名': property['売主氏名'] || '',
-    '担当者氏名': property['担当者氏名'] || '加瀬',
+    '担当者氏名': '加瀬',
     '発行日': today,
     '買主氏名': payload['買主氏名'] || '',
   };
@@ -658,7 +677,7 @@ function deleteProperty_(payload) {
     folderDeleted = true;
   }
 
-  logActivity_('物件削除', propertyName, 'Driveフォルダも削除');
+  logActivity_('物件削除', propertyName + 'が削除されました（Driveフォルダも削除）');
   clearCache_();
   return { deleted: true, 物件名: propertyName, folderDeleted: folderDeleted };
 }
@@ -678,7 +697,7 @@ function deleteContact_(payload) {
   if (!rowNum) throw new Error('顧客が見つかりません: ' + name);
   sheet.deleteRow(rowNum);
 
-  logActivity_('顧客削除', name, '');
+  logActivity_('顧客削除', name + '様が顧客一覧から削除されました');
   clearCache_();
   return { deleted: true, 氏名: name };
 }
@@ -705,7 +724,7 @@ function deleteTransaction_(payload) {
     }
   }
 
-  logActivity_('取引削除', propertyName + ' × ' + buyerName, deletedCount + '件のイベントを削除');
+  logActivity_('取引削除', buyerName + '様 × ' + propertyName + ' の取引が削除されました（' + deletedCount + '件のイベントを削除）');
   clearCache_();
   return { deleted: true, deletedCount: deletedCount };
 }

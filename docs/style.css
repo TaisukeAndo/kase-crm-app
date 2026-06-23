@@ -69,11 +69,16 @@ h3 { font-size: 15px; margin: 18px 0 10px; color: var(--brand-green-dark); }
 .btn-secondary { background: #fff; color: var(--brand-green-dark); border: 1px solid var(--brand-green); }
 .btn-secondary:hover { background: #eef3ea; }
 
-.filters { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.filters { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
 .filters input, .filters select {
   padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: #fff;
 }
 .filters input[type="text"] { width: 240px; }
+.sort-select { margin-left: auto; font-weight: 600; color: var(--brand-green-dark); border-color: var(--brand-green) !important; }
+
+.stat-card { text-align: center; padding: 22px 16px; }
+.stat-value { font-size: 32px; font-weight: 700; color: var(--brand-green-dark); }
+.stat-label { font-size: 13px; color: var(--text-light); margin-top: 6px; }
 
 .table-scroll { overflow-x: auto; border-radius: 10px; box-shadow: 0 1px 4px rgba(46,90,55,0.08); }
 table { width: 100%; border-collapse: collapse; background: var(--card-bg); }
@@ -126,11 +131,6 @@ a { color: var(--brand-green-dark); }
 .btn-row-edit:hover { background: #eef3ea; }
 .btn-row-delete { border: 1px solid #c84b4b; background: #fff; color: #c84b4b; }
 .btn-row-delete:hover { background: #fbe6e6; }
-
-.progress-track { width: 100%; height: 6px; background: #e6e2d8; border-radius: 4px; overflow: hidden; margin-top: 8px; }
-.progress-fill { height: 100%; background: var(--brand-green); border-radius: 4px; transition: width 0.3s; }
-.progress-fill.lost { background: #c84b4b; }
-.progress-label { font-size: 11px; color: var(--text-light); margin-top: 3px; }
 
 .nested-fields {
   margin-top: 8px; padding: 10px 12px; border-left: 3px solid var(--brand-orange); background: #fff7ef; border-radius: 0 6px 6px 0;

@@ -47,9 +47,9 @@
   </div>
 
   <section id="dashboard" class="active">
-    <h3>進行中の物件</h3>
+    <h3>概況</h3>
     <div id="dashboard-cards" class="card-row"></div>
-    <h3>直近イベント</h3>
+    <h3>直近の履歴</h3>
     <div id="recent-events" class="loading">読み込み中...</div>
   </section>
 
@@ -58,6 +58,13 @@
       <input type="text" id="filter-property-keyword" placeholder="物件名・所在地・売主名で検索" />
       <select id="filter-property-status"><option value="">ステータス: すべて</option></select>
       <select id="filter-property-pref"><option value="">都道府県: すべて</option></select>
+      <select id="sort-property" class="sort-select">
+        <option value="new">新しい順</option>
+        <option value="old">古い順</option>
+        <option value="name">物件名順</option>
+        <option value="price-desc">価格が高い順</option>
+        <option value="price-asc">価格が低い順</option>
+      </select>
     </div>
     <div id="properties-table" class="loading">読み込み中...</div>
   </section>
@@ -66,6 +73,12 @@
     <div class="filters">
       <input type="text" id="filter-contact-keyword" placeholder="氏名・メール・電話番号で検索" />
       <select id="filter-contact-type"><option value="">種別: すべて</option></select>
+      <select id="sort-contact" class="sort-select">
+        <option value="new">新しい順</option>
+        <option value="old">古い順</option>
+        <option value="name">氏名順</option>
+        <option value="type">種別順</option>
+      </select>
     </div>
     <div id="contacts-table" class="loading">読み込み中...</div>
   </section>
@@ -74,6 +87,13 @@
     <div class="filters">
       <input type="text" id="filter-tx-keyword" placeholder="物件名・買主氏名で検索" />
       <select id="filter-tx-status"><option value="">ステータス: すべて</option></select>
+      <select id="sort-tx" class="sort-select">
+        <option value="new">新しい順</option>
+        <option value="old">古い順</option>
+        <option value="property">物件名順</option>
+        <option value="buyer">買主氏名順</option>
+        <option value="status">ステータス順</option>
+      </select>
     </div>
     <div id="transactions-table" class="loading">読み込み中...</div>
   </section>

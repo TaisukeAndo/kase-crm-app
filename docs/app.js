@@ -23,29 +23,44 @@ const STATUS_TO_DOC_TYPES = {
   "引渡し完了": ["売買契約書"],
 };
 
-// 取引完了までの標準的な進行順（ダッシュボードの進捗バー用）。「失注」は別扱い。
-const FUNNEL_STAGES = [
-  "問い合わせ受付", "媒介契約締結", "内覧調整", "内覧完了", "申込受付",
-  "重要事項説明", "売買契約締結", "ローン本審査確認", "引渡し準備", "引渡し完了", "完了",
-];
-
 const state = {
   properties: [],
   contacts: [],
   transactions: [],
   recentEvents: [],
+  stats: { propertyCount: 0, activeTransactionCount: 0, contactCount: 0 },
   activeTab: "dashboard",
+  sort: { properties: "new", contacts: "new", transactions: "new" },
 };
 
 function statusClass(status) {
   return "status status-" + (status || "").replace(/\s/g, "");
 }
 
-function progressPercent(status) {
-  if (status === "失注") return { percent: 100, lost: true };
-  const idx = FUNNEL_STAGES.indexOf(status);
-  if (idx === -1) return { percent: 0, lost: false };
-  return { percent: Math.round(((idx + 1) / FUNNEL_STAGES.length) * 100), lost: false };
+/** 表示専用：氏名の末尾に「様」を付ける（保存データ自体には付けない） */
+function formatName(name) {
+  return name ? `${name}様` : "-";
+}
+
+/** 「230万円」「1,480万円」「記載なし」のような自由記述から数値を取り出す（並び替え用） */
+function parseNumberLoose(text) {
+  if (!text) return NaN;
+  const match = String(text).replace(/,/g, "").match(/[\d.]+/);
+  return match ? parseFloat(match[0]) : NaN;
+}
+
+/** 並び替え: 数値が取れない行は常に末尾に回す */
+function sortByNumberLoose(rows, getter, desc) {
+  return rows.slice().sort((a, b) => {
+    const av = parseNumberLoose(getter(a));
+    const bv = parseNumberLoose(getter(b));
+    const aNaN = Number.isNaN(av);
+    const bNaN = Number.isNaN(bv);
+    if (aNaN && bNaN) return 0;
+    if (aNaN) return 1;
+    if (bNaN) return -1;
+    return desc ? bv - av : av - bv;
+  });
 }
 
 // ---------- タブ切り替え ----------
@@ -80,6 +95,7 @@ async function refreshAll() {
   state.contacts = res.data.contacts;
   state.transactions = res.data.transactions;
   state.recentEvents = res.data.recentEvents;
+  state.stats = res.data.stats || state.stats;
 
   renderDashboard();
   populatePropertyFilterOptions();
@@ -94,27 +110,24 @@ async function refreshAll() {
 function renderDashboard() {
   const cards = document.getElementById("dashboard-cards");
   const recent = document.getElementById("recent-events");
-  const inProgress = state.properties.filter((p) => p["現在ステータス（自動）"] && p["現在ステータス（自動）"] !== "完了");
 
-  cards.innerHTML = inProgress.map((p) => {
-    const status = p["現在ステータス（自動）"];
-    const { percent, lost } = progressPercent(status);
-    return `
-    <div class="card">
-      <div>${p["物件名"]}</div>
-      <div><span class="${statusClass(status)}">${status}</span></div>
-      <div class="progress-track"><div class="progress-fill ${lost ? "lost" : ""}" style="width:${percent}%"></div></div>
-      <div class="progress-label">${lost ? "失注" : `取引完了まで ${percent}%`}</div>
-      <div style="font-size:12px;color:var(--text-light);margin-top:6px;">売主: ${p["売主氏名"] || "-"}</div>
+  const stats = [
+    { label: "取扱物件数", value: state.stats.propertyCount },
+    { label: "進行中の取引件数", value: state.stats.activeTransactionCount },
+    { label: "顧客数", value: state.stats.contactCount },
+  ];
+  cards.innerHTML = stats.map((s) => `
+    <div class="card stat-card">
+      <div class="stat-value">${s.value}</div>
+      <div class="stat-label">${s.label}</div>
     </div>
-  `;
-  }).join("") || `<div class="empty">進行中の物件はありません</div>`;
+  `).join("");
 
   recent.innerHTML = `
     <table>
-      <tr><th>物件名</th><th>買主氏名</th><th>イベント種別</th><th>日付</th><th>メモ</th></tr>
+      <tr><th>日時</th><th>種別</th><th>内容</th></tr>
       ${state.recentEvents.map((e) => `
-        <tr><td>${e["物件名"] || "-"}</td><td>${e["買主氏名"] || "-"}</td><td>${e["イベント種別"]}</td><td>${e["日付"] || ""}</td><td>${e["メモ"] || ""}</td></tr>
+        <tr><td>${e["日時"] || ""}</td><td>${e["種別"] || ""}</td><td>${e["内容"] || ""}</td></tr>
       `).join("")}
     </table>
   `;
@@ -132,7 +145,7 @@ function filteredProperties() {
   const kw = document.getElementById("filter-property-keyword").value.trim();
   const status = document.getElementById("filter-property-status").value;
   const pref = document.getElementById("filter-property-pref").value;
-  return state.properties.filter((p) => {
+  const filtered = state.properties.filter((p) => {
     if (status && p["現在ステータス（自動）"] !== status) return false;
     if (pref && p["都道府県"] !== pref) return false;
     if (kw) {
@@ -141,6 +154,18 @@ function filteredProperties() {
     }
     return true;
   });
+  return sortProperties(filtered);
+}
+
+function sortProperties(rows) {
+  switch (state.sort.properties) {
+    case "old": return rows.slice().sort((a, b) => a.__row - b.__row);
+    case "name": return rows.slice().sort((a, b) => a["物件名"].localeCompare(b["物件名"], "ja"));
+    case "price-desc": return sortByNumberLoose(rows, (r) => r["価格"], true);
+    case "price-asc": return sortByNumberLoose(rows, (r) => r["価格"], false);
+    case "new":
+    default: return rows.slice().sort((a, b) => b.__row - a.__row);
+  }
 }
 
 function renderPropertiesTable() {
@@ -162,7 +187,7 @@ function renderPropertiesTable() {
           </td>
           <td>${p["価格"] || "-"}</td>
           <td>${[p["面積"], p["間取り"]].filter(Boolean).join(" / ") || "-"}</td>
-          <td>${p["売主氏名"] || "-"}</td>
+          <td>${formatName(p["売主氏名"])}</td>
           <td><span class="${statusClass(p["現在ステータス（自動）"])}">${p["現在ステータス（自動）"] || "-"}</span></td>
           <td>${p["Driveフォルダリンク"] ? `<a href="${p["Driveフォルダリンク"]}" target="_blank">開く</a>` : "-"}</td>
           <td>
@@ -206,7 +231,7 @@ function populateContactFilterOptions() {
 function filteredContacts() {
   const kw = document.getElementById("filter-contact-keyword").value.trim();
   const type = document.getElementById("filter-contact-type").value;
-  return state.contacts.filter((c) => {
+  const filtered = state.contacts.filter((c) => {
     if (type && c["種別"] !== type) return false;
     if (kw) {
       const hay = [c["氏名"], c["メールアドレス"], c["電話番号"]].join(" ");
@@ -214,6 +239,17 @@ function filteredContacts() {
     }
     return true;
   });
+  return sortContacts(filtered);
+}
+
+function sortContacts(rows) {
+  switch (state.sort.contacts) {
+    case "old": return rows.slice().sort((a, b) => a.__row - b.__row);
+    case "name": return rows.slice().sort((a, b) => a["氏名"].localeCompare(b["氏名"], "ja"));
+    case "type": return rows.slice().sort((a, b) => (a["種別"] || "").localeCompare(b["種別"] || "", "ja"));
+    case "new":
+    default: return rows.slice().sort((a, b) => b.__row - a.__row);
+  }
 }
 
 function renderContactsTable() {
@@ -228,7 +264,7 @@ function renderContactsTable() {
         const key = c["氏名"];
         return `
         <tr data-key="${key}">
-          <td>${key}</td>
+          <td>${formatName(key)}</td>
           <td>${c["種別"] || "-"}</td>
           <td>${c["メールアドレス"] || "-"}</td>
           <td>${c["電話番号"] || "-"}</td>
@@ -270,7 +306,7 @@ function populateTransactionFilterOptions() {
 function filteredTransactions() {
   const kw = document.getElementById("filter-tx-keyword").value.trim();
   const status = document.getElementById("filter-tx-status").value;
-  return state.transactions.filter((t) => {
+  const filtered = state.transactions.filter((t) => {
     if (status && t["現在ステータス"] !== status) return false;
     if (kw) {
       const hay = [t["物件名"], t["買主氏名"]].join(" ");
@@ -278,6 +314,18 @@ function filteredTransactions() {
     }
     return true;
   });
+  return sortTransactions(filtered);
+}
+
+function sortTransactions(rows) {
+  switch (state.sort.transactions) {
+    case "old": return rows.slice().sort((a, b) => a.__row - b.__row);
+    case "property": return rows.slice().sort((a, b) => a["物件名"].localeCompare(b["物件名"], "ja"));
+    case "buyer": return rows.slice().sort((a, b) => a["買主氏名"].localeCompare(b["買主氏名"], "ja"));
+    case "status": return rows.slice().sort((a, b) => (a["現在ステータス"] || "").localeCompare(b["現在ステータス"] || "", "ja"));
+    case "new":
+    default: return rows.slice().sort((a, b) => b.__row - a.__row);
+  }
 }
 
 function renderTransactionsTable() {
@@ -291,7 +339,7 @@ function renderTransactionsTable() {
       ${rows.map((t) => `
         <tr data-key="${t["物件名"]}___${t["買主氏名"]}">
           <td>${t["物件名"]}</td>
-          <td>${t["買主氏名"]}</td>
+          <td>${formatName(t["買主氏名"])}</td>
           <td><span class="${statusClass(t["現在ステータス"])}">${t["現在ステータス"]}</span></td>
           <td>${t["メモ"] || "-"}</td>
           <td>${t["最終更新日"] || ""}</td>
@@ -341,7 +389,7 @@ function updateTransactionSelectForDocuments() {
   const txForProperty = state.transactions.filter((t) => t["物件名"] === propertyName);
 
   txSelect.innerHTML = `<option value="">（物件のみ・買主未確定）</option>` +
-    txForProperty.map((t) => `<option value="${t["買主氏名"]}">${t["買主氏名"]}（現在: ${t["現在ステータス"]}）</option>`).join("");
+    txForProperty.map((t) => `<option value="${t["買主氏名"]}">${formatName(t["買主氏名"])}（現在: ${t["現在ステータス"]}）</option>`).join("");
 
   updateDocTypeOptionsForDocuments();
 }
@@ -470,14 +518,14 @@ function openPropertyModal() {
       <label>売主氏名
         <select id="seller-select">
           <option value="">（未設定）</option>
-          ${state.contacts.filter((c) => c["種別"] === "売主").map((c) => `<option value="${c["氏名"]}">${c["氏名"]}</option>`).join("")}
+          ${state.contacts.filter((c) => c["種別"] === "売主").map((c) => `<option value="${c["氏名"]}">${formatName(c["氏名"])}</option>`).join("")}
           <option value="__new__">＋ 新規売主を登録</option>
         </select>
       </label>
       <div id="new-seller-fields" class="nested-fields hidden">
         <label>新規売主氏名（必須）<input id="new-seller-name" /></label>
         <label>メールアドレス<input id="new-seller-email" type="email" /></label>
-        <label>電話番号<input id="new-seller-phone" /></label>
+        <label>電話番号<input id="new-seller-phone" type="tel" inputmode="numeric" pattern="[0-9\-]*" placeholder="090-0000-0000" /></label>
       </div>
       <button type="submit">登録（Driveフォルダも自動作成）</button>
       <div id="modal-msg" class="msg"></div>
@@ -549,7 +597,7 @@ function openPropertyEditModal(propertyName) {
         <select name="売主氏名">
           <option value="">（未設定）</option>
           ${state.contacts.filter((c) => c["種別"] === "売主").map((c) =>
-            `<option value="${c["氏名"]}" ${p["売主氏名"] === c["氏名"] ? "selected" : ""}>${c["氏名"]}</option>`
+            `<option value="${c["氏名"]}" ${p["売主氏名"] === c["氏名"] ? "selected" : ""}>${formatName(c["氏名"])}</option>`
           ).join("")}
         </select>
       </label>
@@ -576,7 +624,7 @@ function openContactModal() {
         </select>
       </label>
       <label>メールアドレス<input name="メールアドレス" type="email" /></label>
-      <label>電話番号<input name="電話番号" /></label>
+      <label>電話番号<input name="電話番号" type="tel" inputmode="numeric" pattern="[0-9\-]*" placeholder="090-0000-0000" /></label>
       <button type="submit">登録</button>
       <div id="modal-msg" class="msg"></div>
     </form>
@@ -588,7 +636,7 @@ function openContactModal() {
 function openContactEditModal(name) {
   const c = state.contacts.find((x) => x["氏名"] === name);
   if (!c) return;
-  showModal(`顧客を編集: ${name}`, `
+  showModal(`顧客を編集: ${formatName(name)}`, `
     <form id="modal-form">
       <label>種別
         <select name="種別">
@@ -596,7 +644,7 @@ function openContactEditModal(name) {
         </select>
       </label>
       <label>メールアドレス<input name="メールアドレス" value="${c["メールアドレス"] || ""}" /></label>
-      <label>電話番号<input name="電話番号" value="${c["電話番号"] || ""}" /></label>
+      <label>電話番号<input name="電話番号" type="tel" inputmode="numeric" pattern="[0-9\-]*" value="${c["電話番号"] || ""}" /></label>
       <button type="submit">保存</button>
       <div id="modal-msg" class="msg"></div>
     </form>
@@ -628,14 +676,14 @@ function openTransactionModal() {
       <label>買主氏名（必須）
         <select id="tx-buyer-select">
           <option value="">選択してください</option>
-          ${state.contacts.filter((c) => c["種別"] === "買主").map((c) => `<option value="${c["氏名"]}">${c["氏名"]}</option>`).join("")}
+          ${state.contacts.filter((c) => c["種別"] === "買主").map((c) => `<option value="${c["氏名"]}">${formatName(c["氏名"])}</option>`).join("")}
           <option value="__new__">＋ 新規買主を登録</option>
         </select>
       </label>
       <div id="new-buyer-fields" class="nested-fields hidden">
         <label>新規買主氏名（必須）<input id="new-buyer-name" /></label>
         <label>メールアドレス<input id="new-buyer-email" type="email" /></label>
-        <label>電話番号<input id="new-buyer-phone" /></label>
+        <label>電話番号<input id="new-buyer-phone" type="tel" inputmode="numeric" pattern="[0-9\-]*" placeholder="080-0000-0000" /></label>
       </div>
 
       <label>ステータス（必須）
@@ -734,7 +782,7 @@ function bindTransactionCreateSubmit() {
 function openTransactionEditModal(propertyName, buyerName) {
   const t = state.transactions.find((x) => x["物件名"] === propertyName && x["買主氏名"] === buyerName);
   if (!t) return;
-  showModal(`取引を編集: ${propertyName} × ${buyerName}`, `
+  showModal(`取引を編集: ${propertyName} × ${formatName(buyerName)}`, `
     <form id="modal-form">
       <label>ステータス
         <select name="ステータス">
@@ -769,13 +817,26 @@ document.getElementById("btn-clear-cache").addEventListener("click", async () =>
   alert(res.ok ? "キャッシュをクリアしました" : "失敗: " + res.error);
 });
 
-// ---------- フィルター監視 ----------
+// ---------- フィルター・並び替え監視 ----------
 ["filter-property-keyword", "filter-property-status", "filter-property-pref"].forEach((id) =>
   document.getElementById(id).addEventListener("input", renderPropertiesTable));
 ["filter-contact-keyword", "filter-contact-type"].forEach((id) =>
   document.getElementById(id).addEventListener("input", renderContactsTable));
 ["filter-tx-keyword", "filter-tx-status"].forEach((id) =>
   document.getElementById(id).addEventListener("input", renderTransactionsTable));
+
+document.getElementById("sort-property").addEventListener("change", (e) => {
+  state.sort.properties = e.target.value;
+  renderPropertiesTable();
+});
+document.getElementById("sort-contact").addEventListener("change", (e) => {
+  state.sort.contacts = e.target.value;
+  renderContactsTable();
+});
+document.getElementById("sort-tx").addEventListener("change", (e) => {
+  state.sort.transactions = e.target.value;
+  renderTransactionsTable();
+});
 
 // ログイン成功後（auth.js の onAuthSuccess から）に呼び出される
 function startApp() {
