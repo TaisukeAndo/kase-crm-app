@@ -910,6 +910,57 @@ function importExistingData() {
 }
 
 /**
+ * 【一回限り】01.スローライフ/01_物件情報/ から13件の物件を一括でCRMに登録する。
+ * - 物件マスタへの追加
+ * - 不動産CRM/02_物件/{物件名}/ の標準フォルダ構成を作成
+ * - イベントログに初期ステータスを記録
+ * 既に登録済みの物件名はスキップする。
+ */
+function bulkImportFromSlowlife() {
+  var properties = [
+    // 01_引き渡し準備中
+    { 物件名: '1870_松江市古曽志町_松近様',            ステータス: '引き渡し準備中' },
+    { 物件名: '1903_出雲市多伎町_川上様',              ステータス: '引き渡し準備中' },
+    { 物件名: '1945_松江市手角町_佐々木様',            ステータス: '引き渡し準備中' },
+    { 物件名: '松江市上乃木八丁目_今井様(リバティハウス)', ステータス: '引き渡し準備中' },
+    // 02_販売中
+    { 物件名: '1814_出雲市大社町_金築様',              ステータス: '販売中' },
+    { 物件名: '1864店舗_松江市島根町_高井様',          ステータス: '販売中' },
+    { 物件名: '1872_安来市安来町_服部様',              ステータス: '販売中' },
+    { 物件名: '1883松江市奥谷町_井川様',               ステータス: '販売中' },
+    { 物件名: '1890居宅_松江市島根町_高井様',          ステータス: '販売中' },
+    { 物件名: '1916_松江市宍道町_小豆澤様',            ステータス: '販売中' },
+    { 物件名: '1923_松江市東出雲町_日置様',            ステータス: '販売中' },
+    // 03_掲載準備中
+    { 物件名: '出雲市岡田町_土江様',                   ステータス: '掲載準備中' },
+    { 物件名: '出雲市多伎町小田_石飛様',               ステータス: '掲載準備中' },
+  ];
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var propSheet  = ss.getSheetByName('物件マスタ');
+  var eventSheet = ss.getSheetByName('イベントログ');
+  var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+
+  var existingNames = propSheet.getDataRange().getValues().slice(1).map(function(r) { return r[0]; });
+
+  properties.forEach(function(p) {
+    if (existingNames.indexOf(p.物件名) !== -1) {
+      Logger.log('スキップ（登録済み）: ' + p.物件名);
+      return;
+    }
+    try {
+      createProperty_({ 物件名: p.物件名, 特記事項: 'スローライフフォルダからの移行' });
+      eventSheet.appendRow([p.物件名, '', p.ステータス, today, 'スローライフフォルダからの移行', true]);
+      Logger.log('登録完了: ' + p.物件名 + ' [' + p.ステータス + ']');
+    } catch (e) {
+      Logger.log('エラー ' + p.物件名 + ': ' + e.message);
+    }
+  });
+
+  Logger.log('bulkImportFromSlowlife 完了');
+}
+
+/**
  * 【一回限り】不動産CRM/02_物件/ の直下に7種類のステータスフォルダを作成し、
  * テストとして「出雲市多伎町小田_石飛様」フォルダを
  * 01.スローライフ/01_物件情報/03_掲載準備中/ から
