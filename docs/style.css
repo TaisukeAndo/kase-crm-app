@@ -102,6 +102,9 @@ td input:focus, td select:focus { border-color: var(--brand-green); background: 
 .status-問い合わせ受付, .status-問い合わせ前, .status-申込受付 { background: #eef0ea; color: #5b6357; }
 .status-完了, .status-引渡し完了 { background: #dcf0e1; color: var(--brand-green-dark); }
 .status-失注 { background: #f6dada; color: #9a3a3a; }
+.status-掲載準備中 { background: #eef0ea; color: #5b6357; }
+.status-販売中 { background: #d4edff; color: #1a5a8a; }
+.status-引き渡し準備中 { background: #ffe2b8; color: #8a4b00; }
 
 .card-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; }
 .card { background: var(--card-bg); padding: 16px; border-radius: 10px; box-shadow: 0 1px 4px rgba(46,90,55,0.08); border-top: 3px solid var(--brand-green); }
